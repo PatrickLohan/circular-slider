@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <style>
+        circle {
+            fill: none;
+            stroke-width: 10px;
+        }
+
+        .dashed {
+            stroke-dasharray: 5, 1;
+            stroke: #c9c9c9;
+        }
+
+        .solid {
+            stroke: purple;
+            stroke-opacity: 0.7;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+    </style>
+</head>
+<body>
+    <svg width="420" height="420">
+        <circle cx="210" cy="210" r="200" class="dashed" />
+        <circle cx="210" cy="210" r="200" class="solid" />
+    </svg>
+
+    <script type="text/javascript" language="JavaScript">
+        const circle = document.getElementsByTagName("circle")[1];
+        const radius =  circle.r.baseVal.value;
+        const circumference = radius * 2 * Math.PI;
+
+        circle.style.strokeDasharray = `${circumference} ${circumference}`;
+        circle.style.strokeDashoffset = `${circumference}`;
+
+        function setProgress(percent){
+            const offset = circumference - percent / 100 * circumference;
+            circle.style.strokeDashoffset = offset;
+        }
+
+        let progress = 0;
+        setInterval(function() {
+            if(progress > 101) {
+                progress = 0;
+            }
+
+            setProgress(progress++);
+        }, 10);
+    </script>
+</body>
+</html>
