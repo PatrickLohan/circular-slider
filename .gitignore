@@ -87,5 +87,9 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
+reports/
+tests_output/
+npm-debug.log.*
+node_modules/
 
 # End of https://www.gitignore.io/api/windows,webstorm

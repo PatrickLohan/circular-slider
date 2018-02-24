@@ -1,0 +1,19 @@
+#sliderRootSVG circle {
+    fill: none;
+    stroke-width: 10px;
+}
+
+#sliderRootSVG circle.handle {
+    fill: #fff;
+}
+
+#sliderRootSVG .dashed-circle {
+    stroke-dasharray: 4, 1;
+    stroke: #CFCFD0;
+}
+
+#sliderRootSVG  .top-slider {
+    stroke-opacity: 0.7;
+    transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+}
