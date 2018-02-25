@@ -9,6 +9,7 @@ const _deg2Step = Symbol('deg2Step');
 const _step2Deg = Symbol('step2Deg');
 const _valToDeg = Symbol('valToStep');
 const _radToDeg = Symbol('radToDeg');
+const _degToRadius = Symbol('degToRadius');
 const _deg2Val = Symbol('deg2Val');
 const _move = Symbol('move');
 
@@ -137,7 +138,7 @@ export default class CircularSlider {
             }
 
             console.log("MOVING: " + e.x + ", " + e.y);
-            this.move(e.x, e.y);
+            this[_move](e.x, e.y);
         });
 
         container.addEventListener("mouseup", (e) => {
