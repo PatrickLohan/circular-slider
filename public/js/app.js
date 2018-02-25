@@ -3,10 +3,11 @@ import CircularSlider from "./CircularSlider";
 const options = {
     container: "slider",
     color: "purple",
-    max: 2000,
+    max: 4,
     min: 0,
-    step: 10,
-    radius: 200
+    step: 1,
+    radius: 150
 };
 
 const slider  = new CircularSlider(options);
+//slider.currentStep = 100;
