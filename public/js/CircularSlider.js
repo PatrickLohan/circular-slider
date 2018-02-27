@@ -1,3 +1,4 @@
+const _validateOptions = Symbol('validateOptions');
 const _init = Symbol('init');
 const _createRootSVG = Symbol('createRootSVG');
 const _initSlider = Symbol("addSliderToRootSVG");
@@ -6,17 +7,20 @@ const _createEmptyCircle = Symbol('createEmptyCircle');
 const _createCircle = Symbol('createSlider');
 const _createHandle = Symbol('createHandle');
 const _deg2Step = Symbol('deg2Step');
-const _step2Deg = Symbol('step2Deg');
-const _valToDeg = Symbol('valToStep');
+const _step2Rad = Symbol('step2Rad');
+const _val2Step = Symbol('_val2Step');
 const _deg2Val = Symbol('deg2Val');
 const _move = Symbol('move');
 const _canMove = Symbol('cantMove');
-const _isMovingClockwise = Symbol('isMovingClockwise');
+const _cancelDrag = Symbol('cancelDrag');
+const _handleDrag = Symbol('handleDrag');
+const _handleSliderClick = Symbol('handleSlideClick');
 const _calculateNewPosition = Symbol('calculateNewPoint');
 const _transformClientToLocalCoordinate = Symbol('transformClientToLocalCoordinate');
 
-const STROKE_WIDTH = 15;
+const STROKE_WIDTH = 20;
 const HANDLER_RADIUS = (STROKE_WIDTH / 2) + 2;
+const TOLERANCE = 60;
 
 export default class CircularSlider {
 
@@ -32,17 +36,17 @@ export default class CircularSlider {
     constructor(options) {
         this.options = {...this.defaults, ...options};
 
-        // TODO: validate params - max>min, (max - min) % step == 0
-
+        this[_validateOptions]();
         this[_init]();
     }
 
+    /**
+     * Returns the current value which can only be a number divisible by step.
+     *
+     * @returns {number}
+     */
     get currentValue() {
         return this.options.min + (this.currentStepNo * this.options.step)
-    }
-
-    get currentStep() {
-        return this.currentStepNo;
     }
 
     /**
@@ -51,35 +55,63 @@ export default class CircularSlider {
      *
      * @param stepNo
      */
-    set step(stepNo) {
-        // if (isNaN(parseFloat(stepNo)) || stepNo < 0 || stepNo > this.maxSteps)
-        //     throw new Error("Step number " + stepNo + " is not between 0 and " + maxSteps);
-        //
-        // TODO:
-        // 1. given stepNo, calculate where this is in orbit (endX, endY)
-        // 2. setInterval(move) through orbit until reaching endX, endY OR CANCELED BY another event
+    set stepNo(stepNo) {
+        const maxSteps = (this.options.max - this.options.min) / this.options.step;
+        if (isNaN(parseFloat(stepNo)) || stepNo < 0 || stepNo > maxSteps) {
+            throw new Error("Step number " + stepNo + " is not between 0 and " + maxSteps);
+        }
+
+        const radiansStart = this.position.radians;
+        const radiansEnd = this[_step2Rad](stepNo);
+        const path = Math.abs(radiansStart - radiansEnd) * 50;
+        const isIncreasing = radiansStart < radiansEnd;
+
+        let radiansMove = radiansStart;
+        const intervalId = setInterval(() => {
+            if ((isIncreasing && radiansMove >= radiansEnd) || (!isIncreasing && radiansMove <= radiansEnd
+                    || (this.isMoving && this.stopMove))) {
+                clearInterval(intervalId);
+                this.stopMove = false;
+                this.isMoving = false;
+                return;
+            }
+
+            radiansMove += isIncreasing ? 0.01 : -0.01;
+            const x = Math.round(Math.sin(radiansMove) * this.radius);
+            const y = Math.round(Math.cos(radiansMove) * this.radius) * -1;
+
+            this[_move](x, y);
+        }, path / (this.radius * 100)) // go faster if path is longer
     }
 
+    /**
+     * Moves slider on the orbit for the given coordinates.
+     *
+     * @param x
+     * @param y
+     */
     [_move](x, y) {
         const newPosition = this[_calculateNewPosition](x, y);
-
         if (!this[_canMove](newPosition)) {
             return;
         }
 
-        this.handle.setAttributeNS(null, "cx", this.centerX + newPosition.x);
-        this.handle.setAttributeNS(null, "cy", this.centerY + newPosition.y);
-
         const nextStep = this[_deg2Step](newPosition.degrees);
+
+        // notify about value change
         if (this.currentStepNo !== nextStep && (this.options.valueChange && typeof(this.options.valueChange) === 'function')) {
-            this.currentStepNo = nextStep;
+            this.currentStepNo = nextStep; // set step here so we send the latest value
             this.options.valueChange(this.currentValue);
         }
 
+        // update slider internal state
+        this.value = this[_deg2Val](newPosition.degrees);
         this.currentStepNo = nextStep;
         this.position = newPosition;
 
-        // add offset to color the slider according to its value
+        // move handler and add offset to color the slider according to its value
+        this.handle.setAttributeNS(null, "cx", this.centerX + newPosition.x);
+        this.handle.setAttributeNS(null, "cy", this.centerY + newPosition.y);
         this.slider.style.strokeDashoffset = this.circumference - newPosition.path + "px";
     }
 
@@ -117,6 +149,20 @@ export default class CircularSlider {
         return {x: newX, y: newY, degrees: angelDegrees, radians: radians360, path: path};
     }
 
+    [_validateOptions]() {
+        const step = this.options.step;
+        const min = this.options.min;
+        const max = this.options.max;
+
+        if(min > max) {
+            throw new Error("Min " + min + " must be smaller than max " + max + "!");
+        }
+
+        if(max % step !== 0 || min % step !== 0) {
+            throw new Error("Min " + min + " and max " + max + " + must be divisible by step " + step + "!");
+        }
+    }
+
     /**
      * Initializes (calculates values of) all properties and creates a slider.
      */
@@ -126,66 +172,80 @@ export default class CircularSlider {
         this.radius = this.options.radius - STROKE_WIDTH; // subtract border width from radius
         this.circumference = this.options.radius * 2 * Math.PI;
         this.currentStepNo = 0;
-        this.maxSteps = (this.options.max - this.options.min) / this.options.step;
-        this.startMove = false;
+        this.startDrag = false;
         this.position = this[_calculateNewPosition](this.centerX, this.centerY - this.radius);
+        this.value = this.options.min;
+
+        this.stopMove = false;
+        this.isMoving = true;
 
         this[_initSlider]();
     }
-
-
 
     /**
      * Creates slider composed of underlying stripped SVG circle and top colored circle which will behave as slider.
      */
     [_initSlider]() {
         const container = document.getElementById(this.options.container);
-        console.log(container.offsetWidth);
 
         // create root svg only when the first slider is added to the container.
-        let rootSVG = document.getElementById("sliderRootSVG");
-        if (rootSVG === null) {
-            rootSVG = this[_createRootSVG](container.offsetWidth, container.offsetHeight);
-            container.appendChild(rootSVG);
+        this.rootSVG = document.getElementById("sliderRootSVG");
+        if (this.rootSVG === null) {
+            this.rootSVG = this[_createRootSVG](container.offsetWidth, container.offsetHeight);
+            container.appendChild(this.rootSVG);
         }
 
-        const handle = this.handle;
-        const svgPoint = rootSVG.createSVGPoint();
-        let localCoords;
-        container.addEventListener("mousemove", (e) => {
-            if (!this.startMove) {
-                return;
-            } else if (this.handle.getAttribute("cx") - e.x > 60 || this.handle.getAttribute("cy") - e.y > 60) {
-                this.startMove = false;
-                //console.log("STOPPING MOVE, TOO FAR");
-                return;
-            }
-
-            localCoords = this[_transformClientToLocalCoordinate](svgPoint, e, localCoords, rootSVG);
-            //console.log("MOVING: " + e.x + ", " + e.y);
-            this[_move](localCoords.x, localCoords.y);
-        });
-
-        container.addEventListener("mouseup", (e) => {
-            //console.log("STOP MOVE");
-            this.startMove = false;
-            //this[valToStep]();
-            e.stopPropagation();
-        });
-
-        container.addEventListener("mouseleave", (e) => {
-            // console.log("STOP MOVE");
-            this.startMove = false;
-            //this[_valToStep]();
-            e.stopPropagation();
-        });
+        const svgPoint = this.rootSVG.createSVGPoint();
+        container.addEventListener("mousemove", e => this[_handleDrag](e, svgPoint));
+        container.addEventListener("mouseup", e => this[_cancelDrag](e));
+        container.addEventListener("mouseleave", e => this[_cancelDrag](e));
 
         this.slider = this[_createSliderCircle]();
         this.handle = this[_createHandle]();
 
-        rootSVG.appendChild(this[_createEmptyCircle]());
-        rootSVG.appendChild(this.slider);
-        rootSVG.appendChild(this.handle);
+        this.rootSVG.appendChild(this[_createEmptyCircle](svgPoint, ));
+        this.rootSVG.appendChild(this.slider);
+        this.rootSVG.appendChild(this.handle);
+    }
+
+    /**
+     * Handles drag as long as the touch/mouse is inside the tolerance radius.
+     * @param e
+     * @param svgPoint
+     */
+    [_handleDrag](e, svgPoint) {
+        if (!this.startDrag) {
+            return;
+        }
+
+        const localCoords = this[_transformClientToLocalCoordinate](svgPoint, e);
+        const mouseHandleOffsetX = this.handle.getAttribute("cx") - localCoords.x;
+        const mouseHandleOffsetY = this.handle.getAttribute("cy") - localCoords.y;
+        if (mouseHandleOffsetX > TOLERANCE || mouseHandleOffsetY > TOLERANCE) {
+            this.startDrag = false;
+        } else {
+            this[_move](localCoords.x, localCoords.y);
+        }
+
+        e.stopPropagation();
+        e.preventDefault();
+    }
+
+
+    /**
+     * Cancels drag and finishes the move by scrolling to the closest step.
+     *
+     * @param e
+     */
+    [_cancelDrag](e) {
+        // only complete step if you are currently moving
+        if (this.startDrag) {
+            this.stepNo = this[_val2Step](this.value);
+        }
+
+        this.startDrag = false;
+        e.stopPropagation();
+        e.preventDefault();
     }
 
     /**
@@ -194,24 +254,21 @@ export default class CircularSlider {
      */
     [_createRootSVG](containerWidth, containerHeight) {
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        const minX = -1 * containerWidth/2;
-        const minY = -1 * containerHeight/2;
+        const minX = -1 * containerWidth / 2;
+        const minY = -1 * containerHeight / 2;
         const viewBox = minX + " " + minY + " " + containerWidth + " " + containerHeight;
-        console.log(viewBox);
 
         svg.setAttributeNS(null, "id", "sliderRootSVG");
-        svg.setAttributeNS(null, "height", "100%");
-        svg.setAttributeNS(null, "width", "100%");
         svg.setAttributeNS(null, "viewBox", viewBox);
 
         return svg;
     }
 
-    [_transformClientToLocalCoordinate](svgPoint, event, localCoords, rootSVG) {
+    [_transformClientToLocalCoordinate](svgPoint, event) {
         svgPoint.x = event.clientX;
         svgPoint.y = event.clientY;
 
-        return svgPoint.matrixTransform(rootSVG.getScreenCTM().inverse());
+        return svgPoint.matrixTransform(this.rootSVG.getScreenCTM().inverse());
     }
 
     /**
@@ -220,13 +277,14 @@ export default class CircularSlider {
     [_createSliderCircle]() {
         const slider = this[_createCircle]();
 
-        //slider.setAttributeNS(null, 'rotate', '-90deg');
         slider.setAttributeNS(null, 'class', 'top-slider');
         slider.style.stroke = this.options.color;
         slider.style.strokeWidth = STROKE_WIDTH + "px";
 
         slider.style.strokeDasharray = `${this.circumference} ${this.circumference}`;
         slider.style.strokeDashoffset = `${this.circumference}`;
+
+        slider.addEventListener('click', e => this[_handleSliderClick](e));
 
         return slider;
     }
@@ -238,8 +296,9 @@ export default class CircularSlider {
         const slider = this[_createCircle]();
 
         slider.setAttributeNS(null, 'class', 'dashed-circle');
+        slider.addEventListener('click', e => this[_handleSliderClick](e));
         slider.style.strokeWidth = STROKE_WIDTH + "px";
-        slider.style.strokeDasharray = "5, 1";
+        slider.style.strokeDasharray = "5, 3";
 
         return slider;
     }
@@ -274,11 +333,27 @@ export default class CircularSlider {
         handle.style.strokeWidth = "1px";
 
         handle.addEventListener("mousedown", (e) => {
-            this.startMove = true;
+            this.startDrag = true;
             e.stopPropagation();
+            e.preventDefault();
         });
 
         return handle;
+    }
+
+    [_handleSliderClick](e) {
+        this.stopMove = false;
+        this.isMoving = true;
+        const svgPoint = this.rootSVG.createSVGPoint();
+        const localCoords = this[_transformClientToLocalCoordinate](svgPoint, e);
+        const newPosition = this[_calculateNewPosition](localCoords.x, localCoords.y);
+        this.stepNo = this[_deg2Step](newPosition.degrees);
+    }
+
+    [_deg2Step](deg) {
+        const val = this[_deg2Val](deg);
+
+        return this[_val2Step](val);
     }
 
     [_deg2Val](deg) {
@@ -287,27 +362,16 @@ export default class CircularSlider {
         return Math.round(deg * (range / 360.0)) + this.options.min;
     }
 
-    [_deg2Step](deg) {
-        const val = this[_deg2Val](deg);
-
-        return Math.round((val - this.options.min) / this.options.step);
+    [_val2Step](val) {
+        return Math.round((val - this.options.min) / this.options.step)
     }
 
-    [_step2Deg](stepNo) {
-        return 180;
-    }
+    [_step2Rad](stepNo) {
+        const val = stepNo * this.options.step + this.options.min
+        const adjustedVal = val - this.options.min;
+        const range = this.options.max - this.options.min;
+        const degrees = this.options.max === val ? 359.99 : (Math.round(adjustedVal * (360.0 / range))) % 360;
 
-    [_valToDeg]() {
-        //this.currentValue
+        return degrees * Math.PI / 180;
     }
-
-    [_isMovingClockwise](x, y) {
-        // if in top half x must be < than new X and x > newX if in the bottom half.
-        return (this.position.y <= 0 && this.position.x <= x) || (this.position.y > 0 && this.position.x >= x);
-    }
-
-    // x,y to degrees
-    // degress to radians
-    // radians to degrees
-    // x,y distance traveled
 }
