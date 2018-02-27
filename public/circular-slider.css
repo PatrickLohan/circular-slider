@@ -1,3 +1,17 @@
+body {
+    padding: 0;
+    margin: 200px;
+}
+
+#slider {
+    width: 420px;
+    height: 420px;
+    border: 10px solid red;
+}
+
+#sliderRootSVG {
+}
+
 #sliderRootSVG circle {
     fill: none;
     stroke-width: 10px;
@@ -15,5 +29,4 @@
 #sliderRootSVG  .top-slider {
     stroke-opacity: 0.7;
     transform: rotate(-90deg);
-    transform-origin: 50% 50%;
 }

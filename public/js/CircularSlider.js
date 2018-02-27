@@ -8,10 +8,12 @@ const _createHandle = Symbol('createHandle');
 const _deg2Step = Symbol('deg2Step');
 const _step2Deg = Symbol('step2Deg');
 const _valToDeg = Symbol('valToStep');
-const _radToDeg = Symbol('radToDeg');
-const _degToRadius = Symbol('degToRadius');
 const _deg2Val = Symbol('deg2Val');
 const _move = Symbol('move');
+const _canMove = Symbol('cantMove');
+const _isMovingClockwise = Symbol('isMovingClockwise');
+const _calculateNewPosition = Symbol('calculateNewPoint');
+const _transformClientToLocalCoordinate = Symbol('transformClientToLocalCoordinate');
 
 const STROKE_WIDTH = 15;
 const HANDLER_RADIUS = (STROKE_WIDTH / 2) + 2;
@@ -59,108 +61,124 @@ export default class CircularSlider {
     }
 
     [_move](x, y) {
-        // adjust based on container's position
-        x -= this.containerOffsetLeft;
-        y -= this.containerOffsetTop;
+        const newPosition = this[_calculateNewPosition](x, y);
 
-        // calculate x and y from - atan(x and y) are switched in the formula
-        const angelRadRotated = Math.atan2(x - this.centerX, y - this.centerY);
-        const newX = Math.sin(angelRadRotated) * this.radius;
-        const newY = Math.cos(angelRadRotated) * this.radius;
-
-        // calculate distance from rotated circle (0° is on top)
-        let radiansAdjusted = Math.atan2(y - this.centerY, x - this.centerX) + Math.PI / 2;
-        radiansAdjusted = radiansAdjusted > 0 ? radiansAdjusted : radiansAdjusted + 2 * Math.PI;
-
-        const deg = radiansAdjusted * 180.0 / Math.PI;
-
-        const nextStep = this[_deg2Step](deg);
-        if(this.currentStepNo === this.maxSteps && nextStep === 0 ||this.currentStepNo === 0 && nextStep === this.maxSteps) {
+        if (!this[_canMove](newPosition)) {
             return;
         }
 
-        this.handle.setAttributeNS(null, "cx", this.centerX + newX);
-        this.handle.setAttributeNS(null, "cy", this.centerY + newY);
+        this.handle.setAttributeNS(null, "cx", this.centerX + newPosition.x);
+        this.handle.setAttributeNS(null, "cy", this.centerY + newPosition.y);
 
-        // TODO: emit event
+        const nextStep = this[_deg2Step](newPosition.degrees);
+        if (this.currentStepNo !== nextStep && (this.options.valueChange && typeof(this.options.valueChange) === 'function')) {
+            this.currentStepNo = nextStep;
+            this.options.valueChange(this.currentValue);
+        }
 
         this.currentStepNo = nextStep;
+        this.position = newPosition;
 
+        // add offset to color the slider according to its value
+        this.slider.style.strokeDashoffset = this.circumference - newPosition.path + "px";
+    }
 
-        const distance = Math.round(this.radius * radiansAdjusted);
-        // add offset
-        this.slider.style.strokeDashoffset = this.circumference - distance + "px";
+    /**
+     * Returns false if slider wants to be moved past the top zero point.
+     *
+     * @param newPosition
+     * @returns {boolean}
+     */
+    [_canMove](newPosition) {
+        return !(this.position.y < 0 && ((this.position.x >= 0 && newPosition.x < 0) || (this.position.x < 0 && newPosition.x >= 0)));
+    }
+
+    /**
+     * Calculates new position, angles and path traveled based on local coordinate system (center = 0,0).
+     *
+     * @param x
+     * @param y
+     * @returns {{x: number, y: number, degrees: number, radians: number, path: number}}
+     */
+    [_calculateNewPosition](x, y) {
+        // calculate distance from rotated circle (0° is on top)
+        // replacing x and y in Math.atan2 method rotates the axis for 90 degrees but in wrong direction
+        // multiply Y with -1 to "rotate" for 180° in the right direction :)
+        const angelRadians = Math.atan2(x - this.centerX, -y - this.centerY);
+        const newX = Math.round(Math.sin(angelRadians) * this.radius);
+        const newY = Math.round(Math.cos(angelRadians) * this.radius) * -1;
+
+        // we have our coordinates right, but angles need to be adjusted to positive number
+        // basically just add 2PI - 360 degrees
+        const radians360 = angelRadians < 0 ? angelRadians + 2 * Math.PI : angelRadians;
+        const angelDegrees = radians360 * 180.0 / Math.PI;
+        const path = Math.round(this.radius * radians360);
+
+        return {x: newX, y: newY, degrees: angelDegrees, radians: radians360, path: path};
     }
 
     /**
      * Initializes (calculates values of) all properties and creates a slider.
      */
     [_init]() {
-        const container = document.getElementById(this.options.container);
-
-        this.containerOffsetLeft = container.offsetLeft;
-        this.containerOffsetTop = container.offsetTop;
-
-        // calculate container's center
-        this.centerX = container.offsetWidth / 2;
-        this.centerY = container.offsetHeight / 2;
+        this.centerX = 0;
+        this.centerY = 0;
         this.radius = this.options.radius - STROKE_WIDTH; // subtract border width from radius
         this.circumference = this.options.radius * 2 * Math.PI;
         this.currentStepNo = 0;
         this.maxSteps = (this.options.max - this.options.min) / this.options.step;
         this.startMove = false;
+        this.position = this[_calculateNewPosition](this.centerX, this.centerY - this.radius);
 
         this[_initSlider]();
     }
 
-    /**
-     * Creates root svg to which all sliders residing in the same container are later appended.
-     * @returns {SVGCircleElement}
-     */
-    [_createRootSVG]() {
-        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        svg.setAttributeNS(null, "id", "sliderRootSVG");
-        svg.setAttributeNS(null, "height", "100%");
-        svg.setAttributeNS(null, "width", "100%");
 
-        return svg;
-    }
 
     /**
      * Creates slider composed of underlying stripped SVG circle and top colored circle which will behave as slider.
      */
     [_initSlider]() {
         const container = document.getElementById(this.options.container);
+        console.log(container.offsetWidth);
 
+        // create root svg only when the first slider is added to the container.
+        let rootSVG = document.getElementById("sliderRootSVG");
+        if (rootSVG === null) {
+            rootSVG = this[_createRootSVG](container.offsetWidth, container.offsetHeight);
+            container.appendChild(rootSVG);
+        }
+
+        const handle = this.handle;
+        const svgPoint = rootSVG.createSVGPoint();
+        let localCoords;
         container.addEventListener("mousemove", (e) => {
             if (!this.startMove) {
                 return;
+            } else if (this.handle.getAttribute("cx") - e.x > 60 || this.handle.getAttribute("cy") - e.y > 60) {
+                this.startMove = false;
+                //console.log("STOPPING MOVE, TOO FAR");
+                return;
             }
 
-            console.log("MOVING: " + e.x + ", " + e.y);
-            this[_move](e.x, e.y);
+            localCoords = this[_transformClientToLocalCoordinate](svgPoint, e, localCoords, rootSVG);
+            //console.log("MOVING: " + e.x + ", " + e.y);
+            this[_move](localCoords.x, localCoords.y);
         });
 
         container.addEventListener("mouseup", (e) => {
-            console.log("STOP MOVE");
+            //console.log("STOP MOVE");
             this.startMove = false;
             //this[valToStep]();
             e.stopPropagation();
         });
 
         container.addEventListener("mouseleave", (e) => {
-            console.log("STOP MOVE");
+            // console.log("STOP MOVE");
             this.startMove = false;
             //this[_valToStep]();
             e.stopPropagation();
         });
-
-        // create root svg only when the first slider is added to the container.
-        let rootSVG = document.getElementById("sliderRootSVG");
-        if (rootSVG === null) {
-            rootSVG = this[_createRootSVG]();
-            container.appendChild(rootSVG);
-        }
 
         this.slider = this[_createSliderCircle]();
         this.handle = this[_createHandle]();
@@ -171,11 +189,38 @@ export default class CircularSlider {
     }
 
     /**
+     * Creates root svg to which all sliders residing in the same container are later appended.
+     * @returns {SVGCircleElement}
+     */
+    [_createRootSVG](containerWidth, containerHeight) {
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        const minX = -1 * containerWidth/2;
+        const minY = -1 * containerHeight/2;
+        const viewBox = minX + " " + minY + " " + containerWidth + " " + containerHeight;
+        console.log(viewBox);
+
+        svg.setAttributeNS(null, "id", "sliderRootSVG");
+        svg.setAttributeNS(null, "height", "100%");
+        svg.setAttributeNS(null, "width", "100%");
+        svg.setAttributeNS(null, "viewBox", viewBox);
+
+        return svg;
+    }
+
+    [_transformClientToLocalCoordinate](svgPoint, event, localCoords, rootSVG) {
+        svgPoint.x = event.clientX;
+        svgPoint.y = event.clientY;
+
+        return svgPoint.matrixTransform(rootSVG.getScreenCTM().inverse());
+    }
+
+    /**
      * Creates new SVG circle used as a top slider.
      */
     [_createSliderCircle]() {
         const slider = this[_createCircle]();
 
+        //slider.setAttributeNS(null, 'rotate', '-90deg');
         slider.setAttributeNS(null, 'class', 'top-slider');
         slider.style.stroke = this.options.color;
         slider.style.strokeWidth = STROKE_WIDTH + "px";
@@ -219,16 +264,16 @@ export default class CircularSlider {
      */
     [_createHandle]() {
         const handle = document.createElementNS("http://www.w3.org/2000/svg", 'circle');
-        handle.setAttributeNS(null, "cx", this.centerX);
-        handle.setAttributeNS(null, "cy", this.centerY - this.radius);
-        handle.setAttributeNS(null, "r", HANDLER_RADIUS);
+        handle.setAttributeNS(null, "cx", `${this.centerX}`);
+        handle.setAttributeNS(null, "cy", `${this.centerY - this.radius}`);
+        handle.setAttributeNS(null, "r", `${HANDLER_RADIUS}`);
         handle.setAttributeNS(null, "fill", "#fff");
         handle.setAttributeNS(null, "class", "handle");
+        handle.setAttributeNS(null, "id", "handle" + this.options.container + this.radius); // add uniqueId
         handle.style.stroke = "#CFCFD0";
         handle.style.strokeWidth = "1px";
 
         handle.addEventListener("mousedown", (e) => {
-            console.log("START MOVE");
             this.startMove = true;
             e.stopPropagation();
         });
@@ -244,14 +289,8 @@ export default class CircularSlider {
 
     [_deg2Step](deg) {
         const val = this[_deg2Val](deg);
-        const stepNo = val / this.options.step;
 
-        return val % this.options.step < this.options.step / 2 ?  stepNo : stepNo + 1;
-    }
-
-    [_degToRadius](deg) {
-        return deg;
-        //return Math.round(Math.PI / 4 - (this.radius * theta));
+        return Math.round((val - this.options.min) / this.options.step);
     }
 
     [_step2Deg](stepNo) {
@@ -260,6 +299,11 @@ export default class CircularSlider {
 
     [_valToDeg]() {
         //this.currentValue
+    }
+
+    [_isMovingClockwise](x, y) {
+        // if in top half x must be < than new X and x > newX if in the bottom half.
+        return (this.position.y <= 0 && this.position.x <= x) || (this.position.y > 0 && this.position.x >= x);
     }
 
     // x,y to degrees
