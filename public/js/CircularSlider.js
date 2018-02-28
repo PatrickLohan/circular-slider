@@ -1,9 +1,21 @@
+window.requestAnimationFrame = window.requestAnimationFrame
+    || window.mozRequestAnimationFrame
+    || window.webkitRequestAnimationFrame
+    || window.msRequestAnimationFrame
+    || function(f){return setTimeout(f, 1000/60)}; // simulate calling code 60
+
+window.cancelAnimationFrame = window.cancelAnimationFrame
+    || window.mozCancelAnimationFrame
+    || function(requestID){clearTimeout(requestID)} //fall back
+
+
 const _validateOptions = Symbol('validateOptions');
 const _init = Symbol('init');
 const _createRootSVG = Symbol('createRootSVG');
 const _initSlider = Symbol("addSliderToRootSVG");
 const _createSliderCircle = Symbol('createSliderCircle');
 const _createEmptyCircle = Symbol('createEmptyCircle');
+const _createClickCircle = Symbol('createClickCircle');
 const _createCircle = Symbol('createSlider');
 const _createHandle = Symbol('createHandle');
 const _deg2Step = Symbol('deg2Step');
@@ -13,8 +25,11 @@ const _deg2Val = Symbol('deg2Val');
 const _move = Symbol('move');
 const _canMove = Symbol('cantMove');
 const _cancelDrag = Symbol('cancelDrag');
+const _startDrag = Symbol('startDrag');
 const _handleDrag = Symbol('handleDrag');
 const _handleSliderClick = Symbol('handleSlideClick');
+const _initEventHandlers = Symbol('initEventHandlers');
+const _touchHandler = Symbol('touchHandler');
 const _calculateNewPosition = Symbol('calculateNewPoint');
 const _transformClientToLocalCoordinate = Symbol('transformClientToLocalCoordinate');
 
@@ -61,27 +76,49 @@ export default class CircularSlider {
             throw new Error("Step number " + stepNo + " is not between 0 and " + maxSteps);
         }
 
+        // stop current animation if in progress
+        if (this.animationFrameId !== null) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+
+        // calculate start/end points
         const radiansStart = this.position.radians;
         const radiansEnd = this[_step2Rad](stepNo);
-        const path = Math.abs(radiansStart - radiansEnd) * 50;
         const isIncreasing = radiansStart < radiansEnd;
 
+        // let now, elapsed, then, startTime;
+        // let frameCount = 0;
+        // then = Date.now();
+        // startTime = then;
+
+        //const log = document.getElementById("log");
+        // start animation
         let radiansMove = radiansStart;
-        const intervalId = setInterval(() => {
-            if ((isIncreasing && radiansMove >= radiansEnd) || (!isIncreasing && radiansMove <= radiansEnd
-                    || (this.isMoving && this.stopMove))) {
-                clearInterval(intervalId);
-                this.stopMove = false;
-                this.isMoving = false;
+        const redraw = () => {
+            // now = Date.now();
+            // elapsed = now - then;
+            // then = now - elapsed;
+
+            if ((isIncreasing && radiansMove >= radiansEnd) || (!isIncreasing && radiansMove <= radiansEnd)) {
+                cancelAnimationFrame(this.animationFrameId);
+                this.animationFrameId = null;
                 return;
             }
 
-            radiansMove += isIncreasing ? 0.01 : -0.01;
+            radiansMove += isIncreasing ? 0.05 : -0.05;
             const x = Math.round(Math.sin(radiansMove) * this.radius);
             const y = Math.round(Math.cos(radiansMove) * this.radius) * -1;
 
             this[_move](x, y);
-        }, path / (this.radius * 100)) // go faster if path is longer
+
+            // let sinceStart = now - startTime;
+            //let currentFps = Math.round(1000 / (sinceStart / ++frameCount) * 100) / 100;
+            // log.innerHTML ="FPS: " + currentFps;
+            this.animationFrameId = requestAnimationFrame(redraw);
+        };
+
+        this.animationFrameId = requestAnimationFrame(redraw);
     }
 
     /**
@@ -154,12 +191,16 @@ export default class CircularSlider {
         const min = this.options.min;
         const max = this.options.max;
 
-        if(min > max) {
+        if (min > max) {
             throw new Error("Min " + min + " must be smaller than max " + max + "!");
         }
 
-        if(max % step !== 0 || min % step !== 0) {
+        if (max % step !== 0 || min % step !== 0) {
             throw new Error("Min " + min + " and max " + max + " + must be divisible by step " + step + "!");
+        }
+
+        if (this.options.radius > 200 || this.options.radius < 0) {
+            throw new Error("Radius must be between 1 and 200. The slider will adjust the to the size of the container automatically. Radius 200 means slider will be touching the boundaries");
         }
     }
 
@@ -169,97 +210,56 @@ export default class CircularSlider {
     [_init]() {
         this.centerX = 0;
         this.centerY = 0;
-        this.radius = this.options.radius - STROKE_WIDTH; // subtract border width from radius
+        this.radius = this.options.radius - (STROKE_WIDTH / 2); // subtract border width from radius
         this.circumference = this.options.radius * 2 * Math.PI;
         this.currentStepNo = 0;
-        this.startDrag = false;
+        this.isDragging = false;
         this.position = this[_calculateNewPosition](this.centerX, this.centerY - this.radius);
         this.value = this.options.min;
 
-        this.stopMove = false;
-        this.isMoving = true;
+        this.animationFrameId = null;
+        this.lastTouchType = '';
 
         this[_initSlider]();
+        this[_initEventHandlers]();
     }
 
     /**
      * Creates slider composed of underlying stripped SVG circle and top colored circle which will behave as slider.
      */
     [_initSlider]() {
-        const container = document.getElementById(this.options.container);
+        this.container = document.getElementById(this.options.container);
 
         // create root svg only when the first slider is added to the container.
         this.rootSVG = document.getElementById("sliderRootSVG");
         if (this.rootSVG === null) {
-            this.rootSVG = this[_createRootSVG](container.offsetWidth, container.offsetHeight);
-            container.appendChild(this.rootSVG);
+            this.rootSVG = this[_createRootSVG](Math.min(this.container.offsetWidth, this.container.offsetHeight));
+            this.container.appendChild(this.rootSVG);
         }
 
-        const svgPoint = this.rootSVG.createSVGPoint();
-        container.addEventListener("mousemove", e => this[_handleDrag](e, svgPoint));
-        container.addEventListener("mouseup", e => this[_cancelDrag](e));
-        container.addEventListener("mouseleave", e => this[_cancelDrag](e));
 
         this.slider = this[_createSliderCircle]();
         this.handle = this[_createHandle]();
+        this.clickCircle = this[_createClickCircle]();
 
-        this.rootSVG.appendChild(this[_createEmptyCircle](svgPoint, ));
+        this.rootSVG.appendChild(this[_createEmptyCircle]());
+        this.rootSVG.appendChild(this.clickCircle);
         this.rootSVG.appendChild(this.slider);
         this.rootSVG.appendChild(this.handle);
-    }
-
-    /**
-     * Handles drag as long as the touch/mouse is inside the tolerance radius.
-     * @param e
-     * @param svgPoint
-     */
-    [_handleDrag](e, svgPoint) {
-        if (!this.startDrag) {
-            return;
-        }
-
-        const localCoords = this[_transformClientToLocalCoordinate](svgPoint, e);
-        const mouseHandleOffsetX = this.handle.getAttribute("cx") - localCoords.x;
-        const mouseHandleOffsetY = this.handle.getAttribute("cy") - localCoords.y;
-        if (mouseHandleOffsetX > TOLERANCE || mouseHandleOffsetY > TOLERANCE) {
-            this.startDrag = false;
-        } else {
-            this[_move](localCoords.x, localCoords.y);
-        }
-
-        e.stopPropagation();
-        e.preventDefault();
-    }
-
-
-    /**
-     * Cancels drag and finishes the move by scrolling to the closest step.
-     *
-     * @param e
-     */
-    [_cancelDrag](e) {
-        // only complete step if you are currently moving
-        if (this.startDrag) {
-            this.stepNo = this[_val2Step](this.value);
-        }
-
-        this.startDrag = false;
-        e.stopPropagation();
-        e.preventDefault();
     }
 
     /**
      * Creates root svg to which all sliders residing in the same container are later appended.
      * @returns {SVGCircleElement}
      */
-    [_createRootSVG](containerWidth, containerHeight) {
+    [_createRootSVG](boxSize) {
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        const minX = -1 * containerWidth / 2;
-        const minY = -1 * containerHeight / 2;
-        const viewBox = minX + " " + minY + " " + containerWidth + " " + containerHeight;
 
+        // let's keep it a square
         svg.setAttributeNS(null, "id", "sliderRootSVG");
-        svg.setAttributeNS(null, "viewBox", viewBox);
+        svg.setAttributeNS(null, "width", boxSize);
+        svg.setAttributeNS(null, "height", boxSize);
+        svg.setAttributeNS(null, "viewBox", "-200 -200 400 400");
 
         return svg;
     }
@@ -284,7 +284,14 @@ export default class CircularSlider {
         slider.style.strokeDasharray = `${this.circumference} ${this.circumference}`;
         slider.style.strokeDashoffset = `${this.circumference}`;
 
-        slider.addEventListener('click', e => this[_handleSliderClick](e));
+        return slider;
+    }
+
+    [_createClickCircle]() {
+        const slider = this[_createCircle]();
+
+        slider.style.strokeWidth = STROKE_WIDTH + "px";
+        slider.style.stroke = "transparent";
 
         return slider;
     }
@@ -296,9 +303,8 @@ export default class CircularSlider {
         const slider = this[_createCircle]();
 
         slider.setAttributeNS(null, 'class', 'dashed-circle');
-        slider.addEventListener('click', e => this[_handleSliderClick](e));
         slider.style.strokeWidth = STROKE_WIDTH + "px";
-        slider.style.strokeDasharray = "5, 3";
+        slider.style.strokeDasharray = "5, 2";
 
         return slider;
     }
@@ -310,9 +316,9 @@ export default class CircularSlider {
      */
     [_createCircle]() {
         const slider = document.createElementNS("http://www.w3.org/2000/svg", 'circle');
-        slider.setAttributeNS(null, "cx", "" + this.centerX);
-        slider.setAttributeNS(null, "cy", "" + this.centerY);
-        slider.setAttributeNS(null, "r", "" + this.radius);
+        slider.setAttributeNS(null, "cx", this.centerX);
+        slider.setAttributeNS(null, "cy", this.centerY);
+        slider.setAttributeNS(null, "r", this.radius);
         slider.setAttributeNS(null, "fill", "none");
 
         return slider;
@@ -332,22 +338,7 @@ export default class CircularSlider {
         handle.style.stroke = "#CFCFD0";
         handle.style.strokeWidth = "1px";
 
-        handle.addEventListener("mousedown", (e) => {
-            this.startDrag = true;
-            e.stopPropagation();
-            e.preventDefault();
-        });
-
         return handle;
-    }
-
-    [_handleSliderClick](e) {
-        this.stopMove = false;
-        this.isMoving = true;
-        const svgPoint = this.rootSVG.createSVGPoint();
-        const localCoords = this[_transformClientToLocalCoordinate](svgPoint, e);
-        const newPosition = this[_calculateNewPosition](localCoords.x, localCoords.y);
-        this.stepNo = this[_deg2Step](newPosition.degrees);
     }
 
     [_deg2Step](deg) {
@@ -374,4 +365,98 @@ export default class CircularSlider {
 
         return degrees * Math.PI / 180;
     }
+
+    [_initEventHandlers]() {
+        this.container.addEventListener("mousemove", e => this[_handleDrag](e));
+        this.container.addEventListener("mouseup", e => this[_cancelDrag](e));
+        this.container.addEventListener("mouseleave", e => this[_cancelDrag](e));
+
+        this.handle.addEventListener("touchmove", e => this[_touchHandler](e));
+        this.container.addEventListener("touchcancel", e => this[_touchHandler](e));
+        this.container.addEventListener("touchend", e => this[_touchHandler](e));
+
+        this.clickCircle.addEventListener('click', e => this[_handleSliderClick](e));
+        this.clickCircle.addEventListener("touchend", e => this[_touchHandler](e));
+        this.clickCircle.addEventListener("touchstart", e => this[_touchHandler](e));
+
+        this.slider.addEventListener('click', e => this[_handleSliderClick](e));
+        this.slider.addEventListener("touchend", e => this[_touchHandler](e));
+        this.slider.addEventListener("touchstart", e => this[_touchHandler](e));
+
+        this.handle.addEventListener("touchstart", e => this[_touchHandler](e));
+        this.handle.addEventListener("mousedown", e => this[_startDrag](e));
+    }
+
+    [_startDrag](e) {
+        e.preventDefault();
+        this.isDragging = true;
+    };
+
+    /**
+     * Handles drag as long as the touch/mouse is inside the tolerance radius.
+     * @param e
+     */
+    [_handleDrag](e) {
+        e.preventDefault();
+        if (!this.isDragging) {
+            return;
+        }
+
+        const svgPoint = this.rootSVG.createSVGPoint();
+        const localCoords = this[_transformClientToLocalCoordinate](svgPoint, e);
+        const mouseHandleOffsetX = this.handle.getAttribute("cx") - localCoords.x;
+        const mouseHandleOffsetY = this.handle.getAttribute("cy") - localCoords.y;
+        if (mouseHandleOffsetX > TOLERANCE || mouseHandleOffsetY > TOLERANCE) {
+            this[_cancelDrag](e);
+        } else {
+            this[_move](localCoords.x, localCoords.y);
+        }
+    }
+
+    /**
+     * Cancels drag and finishes the move by scrolling to the closest step.
+     *
+     * @param e
+     */
+    [_cancelDrag](e) {
+        e.preventDefault();
+
+        // only complete step if you are currently moving
+        if (this.isDragging) {
+            console.log("COMPLETE STEP");
+            this.stepNo = this[_val2Step](this.value);
+        }
+
+        this.isDragging = false;
+    }
+
+    [_handleSliderClick](e) {
+        const svgPoint = this.rootSVG.createSVGPoint();
+        const localCoords = this[_transformClientToLocalCoordinate](svgPoint, e);
+        const newPosition = this[_calculateNewPosition](localCoords.x, localCoords.y);
+        this.stepNo = this[_deg2Step](newPosition.degrees);
+    }
+
+    [_touchHandler](e) {
+        const touches = e.changedTouches;
+
+        // Ignore multi-touch
+        if (touches.length > 1) return;
+
+        const touch = touches[0];
+        const events = ["touchstart", "touchmove", "touchend", "touchcancel"];
+        const mouseEvents = ["mousedown", "mousemove", "mouseup", "mouseleave"];
+        const ev = events.indexOf(e.type);
+
+        if (ev === -1) return;
+
+        const type = e.type === events[2] && this.lastTouchType === events[0] ? 'click' : mouseEvents[ev];
+        const simulatedEvent = document.createEvent("MouseEvent");
+        simulatedEvent.initMouseEvent(type, true, true, window, 1,
+            touch.screenX, touch.screenY, touch.clientX, touch.clientY, false, false, false, false, 0, null);
+
+        touch.target.dispatchEvent(simulatedEvent);
+        e.preventDefault();
+        this.lastTouchType = e.type;
+    };
 }

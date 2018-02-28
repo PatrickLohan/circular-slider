@@ -9,17 +9,23 @@
 </head>
 <body>
     <div id="container" class="clear">
-        <div id="legend">
+        <div id="legend" class="col1_2">
             <ul>
-                <li id="transportation"></li>
-                <li id="food"></li>
-                <li id="insurance"></li>
-                <li id="entertainment"></li>
-                <li id="health-care"></li>
+                <li id="transportation"><span class="amount"></span><span class="title"><span id="purple">Transport</span>Transport</span></li>
+                <li id="food"><span class="amount"></span><span class="title"><span id="blue">Food</span>Food</span></li>
+                <li id="insurance"><span class="amount"></span><span class="title"><span id="green">Insurance</span>Insurance</span></li>
+                <li id="entertainment"><span class="amount"></span><span class="title"><span id="orange">Entertainment</span>Entertainment</span></li>
+                <li id="health-care"><span class="amount"></span><span class="title"><span id="red">Health care</span>Health care</span></li>
             </ul>
         </div>
-        <div id="slider"></div>
+        <div >
+            <div id="sliderWrapper" class="col1_2">
+                <div id="slider"></div>
+                <span id="tip">Adjust dial to enter expenses</span>
+            </div>
+        </div>
     </div>
+    <div id="log"></div>
     <script type="text/javascript" src="build/app.js"></script>
 </body>
 </html>
