@@ -22,8 +22,10 @@ const _deg2Step = Symbol('deg2Step');
 const _step2Rad = Symbol('step2Rad');
 const _val2Step = Symbol('_val2Step');
 const _deg2Val = Symbol('deg2Val');
+const _point2Radians = Symbol('point2Radians');
 const _move = Symbol('move');
 const _canMove = Symbol('cantMove');
+const _updateState = Symbol("updateState");
 const _cancelDrag = Symbol('cancelDrag');
 const _startDrag = Symbol('startDrag');
 const _handleDrag = Symbol('handleDrag');
@@ -35,7 +37,6 @@ const _transformClientToLocalCoordinate = Symbol('transformClientToLocalCoordina
 
 const STROKE_WIDTH = 20;
 const HANDLER_RADIUS = (STROKE_WIDTH / 2) + 2;
-const TOLERANCE = 60;
 
 export default class CircularSlider {
 
@@ -76,49 +77,17 @@ export default class CircularSlider {
             throw new Error("Step number " + stepNo + " is not between 0 and " + maxSteps);
         }
 
-        // stop current animation if in progress
-        if (this.animationFrameId !== null) {
-            cancelAnimationFrame(this.animationFrameId);
-            this.animationFrameId = null;
-        }
-
-        // calculate start/end points
-        const radiansStart = this.position.radians;
         const radiansEnd = this[_step2Rad](stepNo);
-        const isIncreasing = radiansStart < radiansEnd;
+        const newPosition = this[_calculateNewPosition](radiansEnd);
 
-        // let now, elapsed, then, startTime;
-        // let frameCount = 0;
-        // then = Date.now();
-        // startTime = then;
+        this.slider.style.transition = "stroke-dashoffset 0.5s ease-in-out";
+        this.handle.style.transition = "all 0.5s ease-in-out";
 
-        //const log = document.getElementById("log");
-        // start animation
-        let radiansMove = radiansStart;
-        const redraw = () => {
-            // now = Date.now();
-            // elapsed = now - then;
-            // then = now - elapsed;
-
-            if ((isIncreasing && radiansMove >= radiansEnd) || (!isIncreasing && radiansMove <= radiansEnd)) {
-                cancelAnimationFrame(this.animationFrameId);
-                this.animationFrameId = null;
-                return;
-            }
-
-            radiansMove += isIncreasing ? 0.05 : -0.05;
-            const x = Math.round(Math.sin(radiansMove) * this.radius);
-            const y = Math.round(Math.cos(radiansMove) * this.radius) * -1;
-
-            this[_move](x, y);
-
-            // let sinceStart = now - startTime;
-            //let currentFps = Math.round(1000 / (sinceStart / ++frameCount) * 100) / 100;
-            // log.innerHTML ="FPS: " + currentFps;
-            this.animationFrameId = requestAnimationFrame(redraw);
-        };
-
-        this.animationFrameId = requestAnimationFrame(redraw);
+        requestAnimationFrame(() => {
+            this.slider.setAttributeNS(null, 'stroke-dashoffset', `${this.circumference - newPosition.path}`);
+            this.handle.setAttributeNS(null, "transform", "rotate(" + newPosition.degrees + ")");
+            this[_updateState](newPosition, stepNo);
+        });
     }
 
     /**
@@ -128,28 +97,22 @@ export default class CircularSlider {
      * @param y
      */
     [_move](x, y) {
-        const newPosition = this[_calculateNewPosition](x, y);
+        const angelRadians = this[_point2Radians](x, y);
+        const newPosition = this[_calculateNewPosition](angelRadians);
         if (!this[_canMove](newPosition)) {
             return;
         }
 
         const nextStep = this[_deg2Step](newPosition.degrees);
+        this[_updateState](newPosition, nextStep);
 
-        // notify about value change
-        if (this.currentStepNo !== nextStep && (this.options.valueChange && typeof(this.options.valueChange) === 'function')) {
-            this.currentStepNo = nextStep; // set step here so we send the latest value
-            this.options.valueChange(this.currentValue);
-        }
+        this.slider.style.transition = "";
+        this.handle.style.transition = "";
 
-        // update slider internal state
-        this.value = this[_deg2Val](newPosition.degrees);
-        this.currentStepNo = nextStep;
-        this.position = newPosition;
-
-        // move handler and add offset to color the slider according to its value
-        this.handle.setAttributeNS(null, "cx", this.centerX + newPosition.x);
-        this.handle.setAttributeNS(null, "cy", this.centerY + newPosition.y);
-        this.slider.style.strokeDashoffset = this.circumference - newPosition.path + "px";
+        requestAnimationFrame(() => {
+            this.slider.setAttributeNS(null, 'stroke-dashoffset', `${this.circumference - newPosition.path}`);
+            this.handle.setAttributeNS(null, "transform", "rotate(" + newPosition.degrees + ")");
+        });
     }
 
     /**
@@ -165,25 +128,33 @@ export default class CircularSlider {
     /**
      * Calculates new position, angles and path traveled based on local coordinate system (center = 0,0).
      *
-     * @param x
-     * @param y
+     * @param angleRadians
      * @returns {{x: number, y: number, degrees: number, radians: number, path: number}}
      */
-    [_calculateNewPosition](x, y) {
-        // calculate distance from rotated circle (0° is on top)
-        // replacing x and y in Math.atan2 method rotates the axis for 90 degrees but in wrong direction
-        // multiply Y with -1 to "rotate" for 180° in the right direction :)
-        const angelRadians = Math.atan2(x - this.centerX, -y - this.centerY);
-        const newX = Math.round(Math.sin(angelRadians) * this.radius);
-        const newY = Math.round(Math.cos(angelRadians) * this.radius) * -1;
+    [_calculateNewPosition](angleRadians) {
+        const newX = Math.round(Math.sin(angleRadians) * this.radius);
+        const newY = Math.round(Math.cos(angleRadians) * this.radius) * -1;
 
         // we have our coordinates right, but angles need to be adjusted to positive number
         // basically just add 2PI - 360 degrees
-        const radians360 = angelRadians < 0 ? angelRadians + 2 * Math.PI : angelRadians;
+        const radians360 = angleRadians < 0 ? angleRadians + 2 * Math.PI : angleRadians;
         const angelDegrees = radians360 * 180.0 / Math.PI;
         const path = Math.round(this.radius * radians360);
 
-        return {x: newX, y: newY, degrees: angelDegrees, radians: radians360, path: path};
+        return {x: angelDegrees === 359.99 ? -1 : newX, y: newY, degrees: angelDegrees, radians: radians360, path: path};
+    }
+
+    [_updateState](newPosition, nextStep) {
+        // notify about value change
+        if (this.currentStepNo !== nextStep && (this.options.valueChange && typeof(this.options.valueChange) === 'function')) {
+            this.currentStepNo = nextStep; // set step here so we send the latest value
+            this.options.valueChange(this.currentValue);
+        }
+
+        // update slider internal state
+        this.value = this[_deg2Val](newPosition.degrees);
+        this.currentStepNo = nextStep;
+        this.position = newPosition;
     }
 
     [_validateOptions]() {
@@ -217,7 +188,6 @@ export default class CircularSlider {
         this.position = this[_calculateNewPosition](this.centerX, this.centerY - this.radius);
         this.value = this.options.min;
 
-        this.animationFrameId = null;
         this.lastTouchType = '';
 
         this[_initSlider]();
@@ -278,11 +248,12 @@ export default class CircularSlider {
         const slider = this[_createCircle]();
 
         slider.setAttributeNS(null, 'class', 'top-slider');
+        slider.setAttributeNS(null, 'transform', 'rotate(-90)');
+        slider.setAttributeNS(null, 'stroke-dasharray', `${this.circumference} ${this.circumference}`);
+        slider.setAttributeNS(null, 'stroke-dashoffset', `${this.circumference}`);
+
         slider.style.stroke = this.options.color;
         slider.style.strokeWidth = STROKE_WIDTH + "px";
-
-        slider.style.strokeDasharray = `${this.circumference} ${this.circumference}`;
-        slider.style.strokeDashoffset = `${this.circumference}`;
 
         return slider;
     }
@@ -303,6 +274,7 @@ export default class CircularSlider {
         const slider = this[_createCircle]();
 
         slider.setAttributeNS(null, 'class', 'dashed-circle');
+        slider.setAttributeNS(null, 'transform', 'rotate(-90)');
         slider.style.strokeWidth = STROKE_WIDTH + "px";
         slider.style.strokeDasharray = "5, 2";
 
@@ -358,12 +330,19 @@ export default class CircularSlider {
     }
 
     [_step2Rad](stepNo) {
-        const val = stepNo * this.options.step + this.options.min
+        const val = stepNo * this.options.step + this.options.min;
         const adjustedVal = val - this.options.min;
         const range = this.options.max - this.options.min;
         const degrees = this.options.max === val ? 359.99 : (Math.round(adjustedVal * (360.0 / range))) % 360;
 
         return degrees * Math.PI / 180;
+    }
+
+    [_point2Radians](x, y) {
+        // calculate distance from rotated circle (0° is on top)
+        // replacing x and y in Math.atan2 method rotates the axis for 90 degrees but in wrong direction
+        // multiply Y with -1 to "rotate" for 180° in the right direction :)
+        return Math.atan2(x - this.centerX, -y - this.centerY);
     }
 
     [_initEventHandlers]() {
@@ -404,13 +383,7 @@ export default class CircularSlider {
 
         const svgPoint = this.rootSVG.createSVGPoint();
         const localCoords = this[_transformClientToLocalCoordinate](svgPoint, e);
-        const mouseHandleOffsetX = this.handle.getAttribute("cx") - localCoords.x;
-        const mouseHandleOffsetY = this.handle.getAttribute("cy") - localCoords.y;
-        if (mouseHandleOffsetX > TOLERANCE || mouseHandleOffsetY > TOLERANCE) {
-            this[_cancelDrag](e);
-        } else {
-            this[_move](localCoords.x, localCoords.y);
-        }
+        this[_move](localCoords.x, localCoords.y);
     }
 
     /**
@@ -420,10 +393,8 @@ export default class CircularSlider {
      */
     [_cancelDrag](e) {
         e.preventDefault();
-
         // only complete step if you are currently moving
         if (this.isDragging) {
-            console.log("COMPLETE STEP");
             this.stepNo = this[_val2Step](this.value);
         }
 
@@ -433,7 +404,7 @@ export default class CircularSlider {
     [_handleSliderClick](e) {
         const svgPoint = this.rootSVG.createSVGPoint();
         const localCoords = this[_transformClientToLocalCoordinate](svgPoint, e);
-        const newPosition = this[_calculateNewPosition](localCoords.x, localCoords.y);
+        const newPosition = this[_calculateNewPosition](this[_point2Radians](localCoords.x, localCoords.y));
         this.stepNo = this[_deg2Step](newPosition.degrees);
     }
 
