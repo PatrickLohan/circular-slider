@@ -324,8 +324,6 @@ export default class CircularSlider {
         handle.setAttributeNS(null, "fill", "#fff");
         handle.setAttributeNS(null, "class", "handle");
         handle.setAttributeNS(null, "id", "handle" + this.options.container + this.radius); // add uniqueId
-        handle.style.stroke = "#CFCFD0";
-        handle.style.strokeWidth = "1px";
 
         return handle;
     }
@@ -423,7 +421,14 @@ export default class CircularSlider {
         const svgPoint = this.rootSVG.createSVGPoint();
         const localCoords = this[_transformClientToLocalCoordinate](svgPoint, e);
         const newPosition = this[_calculateNewPosition](this[_point2Radians](localCoords.x, localCoords.y));
-        this.stepNo = this[_deg2Step](newPosition.degrees);
+        const nextStep = this[_deg2Step](newPosition.degrees);
+
+        if(this.currentStepNo === nextStep) {
+            this.handle.classList.add('same-step-error');
+            setTimeout(() => this.handle.classList.remove('same-step-error'), 300);
+        } else {
+            this.stepNo = nextStep;
+        }
     }
 
     [_touchHandler](e) {
