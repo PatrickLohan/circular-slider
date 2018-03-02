@@ -8,6 +8,7 @@ window.cancelAnimationFrame = window.cancelAnimationFrame
     || window.mozCancelAnimationFrame
     || function(requestID){clearTimeout(requestID)} //fall back
 
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 const _validateOptions = Symbol('validateOptions');
 const _init = Symbol('init');
@@ -77,42 +78,53 @@ export default class CircularSlider {
             throw new Error("Step number " + stepNo + " is not between 0 and " + maxSteps);
         }
 
+        //stop current animation if in progress
+        if (this.animationFrameId !== null) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+
+        // calculate start/end points
+        const radiansStart = this.position.radians;
         const radiansEnd = this[_step2Rad](stepNo);
-        const newPosition = this[_calculateNewPosition](radiansEnd);
+        const isIncreasing = radiansStart < radiansEnd;
+        let radiansMove = radiansStart;
 
-        this.slider.style.transition = "stroke-dashoffset 0.5s ease-in-out";
-        this.handle.style.transition = "all 0.5s ease-in-out";
+        const animate = () => {
+            // add easing if we are close to end of the step
+            radiansMove += (Math.abs(radiansEnd - radiansMove) <= 0.2) ? (isIncreasing ? 0.01 : -0.01) : (isIncreasing ? 0.05 : -0.05);
 
-        requestAnimationFrame(() => {
-            this.slider.setAttributeNS(null, 'stroke-dashoffset', `${this.circumference - newPosition.path}`);
-            this.handle.setAttributeNS(null, "transform", "rotate(" + newPosition.degrees + ")");
-            this[_updateState](newPosition, stepNo);
-        });
+            this[_move](radiansMove);
+
+            // allow for a small error because of the rounding
+            if ((Math.abs(radiansMove - radiansEnd) > 0.01)) {
+                this.animationFrameId = requestAnimationFrame(animate);
+            } else {
+                this.animationFrameId = null; // animation ended
+            }
+        };
+
+        this.animationFrameId = requestAnimationFrame(animate);
     }
 
     /**
      * Moves slider on the orbit for the given coordinates.
      *
-     * @param x
-     * @param y
+     * @param angelRadians
      */
-    [_move](x, y) {
-        const angelRadians = this[_point2Radians](x, y);
+    [_move](angelRadians) {
+
         const newPosition = this[_calculateNewPosition](angelRadians);
         if (!this[_canMove](newPosition)) {
             return;
         }
 
         const nextStep = this[_deg2Step](newPosition.degrees);
+        const transform = 'rotate(' + newPosition.degrees + ')';
         this[_updateState](newPosition, nextStep);
 
-        this.slider.style.transition = "";
-        this.handle.style.transition = "";
-
-        requestAnimationFrame(() => {
-            this.slider.setAttributeNS(null, 'stroke-dashoffset', `${this.circumference - newPosition.path}`);
-            this.handle.setAttributeNS(null, "transform", "rotate(" + newPosition.degrees + ")");
-        });
+        this.handle.setAttributeNS(null, 'transform', transform);
+        this.slider.setAttributeNS(null, 'stroke-dashoffset', `${this.circumference - newPosition.path}`);
     }
 
     /**
@@ -135,13 +147,14 @@ export default class CircularSlider {
         const newX = Math.round(Math.sin(angleRadians) * this.radius);
         const newY = Math.round(Math.cos(angleRadians) * this.radius) * -1;
 
+
         // we have our coordinates right, but angles need to be adjusted to positive number
         // basically just add 2PI - 360 degrees
         const radians360 = angleRadians < 0 ? angleRadians + 2 * Math.PI : angleRadians;
         const angelDegrees = radians360 * 180.0 / Math.PI;
         const path = Math.round(this.radius * radians360);
 
-        return {x: angelDegrees === 359.99 ? -1 : newX, y: newY, degrees: angelDegrees, radians: radians360, path: path};
+        return {x: Math.floor(angelDegrees) === 359 ? -1 : newX, y: newY, degrees: angelDegrees, radians: radians360, path: path };
     }
 
     [_updateState](newPosition, nextStep) {
@@ -189,6 +202,7 @@ export default class CircularSlider {
         this.value = this.options.min;
 
         this.lastTouchType = '';
+        this.animationFrameId = null;
 
         this[_initSlider]();
         this[_initEventHandlers]();
@@ -207,7 +221,6 @@ export default class CircularSlider {
             this.container.appendChild(this.rootSVG);
         }
 
-
         this.slider = this[_createSliderCircle]();
         this.handle = this[_createHandle]();
         this.clickCircle = this[_createClickCircle]();
@@ -223,7 +236,7 @@ export default class CircularSlider {
      * @returns {SVGCircleElement}
      */
     [_createRootSVG](boxSize) {
-        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        const svg = document.createElementNS(SVG_NAMESPACE, "svg");
 
         // let's keep it a square
         svg.setAttributeNS(null, "id", "sliderRootSVG");
@@ -258,6 +271,10 @@ export default class CircularSlider {
         return slider;
     }
 
+    /**
+     * Creates transparent circle so we can click on it (dashed border is not click-able everywhere)
+     * @returns SVG
+     */
     [_createClickCircle]() {
         const slider = this[_createCircle]();
 
@@ -268,7 +285,7 @@ export default class CircularSlider {
     }
 
     /**
-     * Creates new SVG circle used as empty "underlying" slider.
+     * Creates new SVG circle with dashed border used as empty "underlying" slider.
      */
     [_createEmptyCircle]() {
         const slider = this[_createCircle]();
@@ -287,7 +304,7 @@ export default class CircularSlider {
      * @returns {SVGCircleElement}
      */
     [_createCircle]() {
-        const slider = document.createElementNS("http://www.w3.org/2000/svg", 'circle');
+        const slider = document.createElementNS(SVG_NAMESPACE, 'circle');
         slider.setAttributeNS(null, "cx", this.centerX);
         slider.setAttributeNS(null, "cy", this.centerY);
         slider.setAttributeNS(null, "r", this.radius);
@@ -300,7 +317,7 @@ export default class CircularSlider {
      * Creates a handle for the slider.
      */
     [_createHandle]() {
-        const handle = document.createElementNS("http://www.w3.org/2000/svg", 'circle');
+        const handle = document.createElementNS(SVG_NAMESPACE, 'circle');
         handle.setAttributeNS(null, "cx", `${this.centerX}`);
         handle.setAttributeNS(null, "cy", `${this.centerY - this.radius}`);
         handle.setAttributeNS(null, "r", `${HANDLER_RADIUS}`);
@@ -335,7 +352,7 @@ export default class CircularSlider {
         const range = this.options.max - this.options.min;
         const degrees = this.options.max === val ? 359.99 : (Math.round(adjustedVal * (360.0 / range))) % 360;
 
-        return degrees * Math.PI / 180;
+        return Math.round(degrees * Math.PI / 180 * 100) / 100;
     }
 
     [_point2Radians](x, y) {
@@ -383,7 +400,8 @@ export default class CircularSlider {
 
         const svgPoint = this.rootSVG.createSVGPoint();
         const localCoords = this[_transformClientToLocalCoordinate](svgPoint, e);
-        this[_move](localCoords.x, localCoords.y);
+        const angelRadians = this[_point2Radians](localCoords.x, localCoords.y);
+        this[_move](angelRadians);
     }
 
     /**
