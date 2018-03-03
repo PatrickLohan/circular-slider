@@ -1,17 +1,13 @@
-window.requestAnimationFrame = window.requestAnimationFrame
-    || window.mozRequestAnimationFrame
-    || window.webkitRequestAnimationFrame
-    || window.msRequestAnimationFrame
-    || function(f){return setTimeout(f, 1000/60)}; // simulate calling code 60
+import 'babel-polyfill'; // IE doesn't support Symbols!?! - https://stackoverflow.com/questions/33828840/symbol-is-undefined-in-ie-after-using-babel
 
-window.cancelAnimationFrame = window.cancelAnimationFrame
-    || window.mozCancelAnimationFrame
-    || function(requestID){clearTimeout(requestID)} //fall back
+window.requestAnimationFrame = window.requestAnimationFrame || window.mozRequestAnimationFrame || window.webkitRequestAnimationFrame || window.msRequestAnimationFrame || function(f){return setTimeout(f, 1000/60)}; // simulate calling code 60
+window.cancelAnimationFrame = window.cancelAnimationFrame || window.mozCancelAnimationFrame || function(requestID){clearTimeout(requestID)}; //fall back
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 const _validateOptions = Symbol('validateOptions');
 const _init = Symbol('init');
+const _isIEorEdge = Symbol('isIEorEdge');
 const _createRootSVG = Symbol('createRootSVG');
 const _initSlider = Symbol("addSliderToRootSVG");
 const _createSliderCircle = Symbol('createSliderCircle');
@@ -24,6 +20,7 @@ const _step2Rad = Symbol('step2Rad');
 const _val2Step = Symbol('_val2Step');
 const _deg2Val = Symbol('deg2Val');
 const _point2Radians = Symbol('point2Radians');
+const _setStepFallback = Symbol('setStepFallback');
 const _move = Symbol('move');
 const _canMove = Symbol('cantMove');
 const _updateState = Symbol("updateState");
@@ -38,6 +35,7 @@ const _transformClientToLocalCoordinate = Symbol('transformClientToLocalCoordina
 
 const STROKE_WIDTH = 20;
 const HANDLER_RADIUS = (STROKE_WIDTH / 2) + 2;
+const TOLERANCE = 40;
 
 export default class CircularSlider {
 
@@ -78,6 +76,30 @@ export default class CircularSlider {
             throw new Error("Step number " + stepNo + " is not between 0 and " + maxSteps);
         }
 
+        if (this.isIEorEdge) {
+            this[_setStepFallback](stepNo);
+        } else {
+            const radiansEnd = this[_step2Rad](stepNo);
+            const newPosition = this[_calculateNewPosition](radiansEnd);
+
+            this.slider.style.transition = "stroke-dashoffset 0.5s ease-in-out";
+            this.handle.style.transition = "all 0.5s ease-in-out";
+
+            requestAnimationFrame(() => {
+                this.slider.setAttributeNS(null, 'stroke-dashoffset', `${this.circumference - newPosition.path}`);
+                this.handle.style.transform = "rotate(" + newPosition.degrees + "deg)";
+                this[_updateState](newPosition, stepNo);
+            });
+        }
+    }
+
+    /**
+     * Used for Edge/IE because of it doesn't support SVG animation via CSS. :/
+     * Animates slider by setting stroke-dashoffset and transform properties in a requestAnimationFrame loop.
+     *
+     * @param stepNo
+     */
+    [_setStepFallback](stepNo) {
         //stop current animation if in progress
         if (this.animationFrameId !== null) {
             cancelAnimationFrame(this.animationFrameId);
@@ -120,11 +142,22 @@ export default class CircularSlider {
         }
 
         const nextStep = this[_deg2Step](newPosition.degrees);
-        const transform = 'rotate(' + newPosition.degrees + ')';
         this[_updateState](newPosition, nextStep);
 
-        this.handle.setAttributeNS(null, 'transform', transform);
-        this.slider.setAttributeNS(null, 'stroke-dashoffset', `${this.circumference - newPosition.path}`);
+        if (this.isIEorEdge) {
+            const transform = 'rotate(' + newPosition.degrees + ')';
+
+            this.handle.setAttributeNS(null, 'transform', transform);
+            this.slider.setAttributeNS(null, 'stroke-dashoffset', `${this.circumference - newPosition.path}`);
+        } else {
+            this.slider.style.transition = "";
+            this.handle.style.transition = "";
+
+            requestAnimationFrame(() => {
+                this.slider.setAttributeNS(null, 'stroke-dashoffset', `${this.circumference - newPosition.path}`);
+                this.handle.style.transform = "rotate(" + newPosition.degrees + "deg)";
+            });
+        }
     }
 
     /**
@@ -147,14 +180,19 @@ export default class CircularSlider {
         const newX = Math.round(Math.sin(angleRadians) * this.radius);
         const newY = Math.round(Math.cos(angleRadians) * this.radius) * -1;
 
-
         // we have our coordinates right, but angles need to be adjusted to positive number
         // basically just add 2PI - 360 degrees
         const radians360 = angleRadians < 0 ? angleRadians + 2 * Math.PI : angleRadians;
         const angelDegrees = radians360 * 180.0 / Math.PI;
         const path = Math.round(this.radius * radians360);
 
-        return {x: Math.floor(angelDegrees) === 359 ? -1 : newX, y: newY, degrees: angelDegrees, radians: radians360, path: path };
+        return {
+            x: Math.floor(angelDegrees) === 359 ? -1 : newX,
+            y: newY,
+            degrees: angelDegrees,
+            radians: radians360,
+            path: path
+        };
     }
 
     [_updateState](newPosition, nextStep) {
@@ -192,6 +230,7 @@ export default class CircularSlider {
      * Initializes (calculates values of) all properties and creates a slider.
      */
     [_init]() {
+        this.isIEorEdge = this[_isIEorEdge](); // cache the result since we'll be checking it very often
         this.centerX = 0;
         this.centerY = 0;
         this.radius = this.options.radius - (STROKE_WIDTH / 2); // subtract border width from radius
@@ -398,8 +437,14 @@ export default class CircularSlider {
 
         const svgPoint = this.rootSVG.createSVGPoint();
         const localCoords = this[_transformClientToLocalCoordinate](svgPoint, e);
-        const angelRadians = this[_point2Radians](localCoords.x, localCoords.y);
-        this[_move](angelRadians);
+        const mouseHandleOffsetX = this.position.x - localCoords.x;
+        const mouseHandleOffsetY = this.position.y - localCoords.y;
+        if (mouseHandleOffsetX > TOLERANCE || mouseHandleOffsetY > TOLERANCE) {
+            this[_cancelDrag](e);
+        } else {
+            const angelRadians = this[_point2Radians](localCoords.x, localCoords.y);
+            this[_move](angelRadians);
+        }
     }
 
     /**
@@ -423,7 +468,7 @@ export default class CircularSlider {
         const newPosition = this[_calculateNewPosition](this[_point2Radians](localCoords.x, localCoords.y));
         const nextStep = this[_deg2Step](newPosition.degrees);
 
-        if(this.currentStepNo === nextStep) {
+        if (this.currentStepNo === nextStep) {
             this.handle.classList.add('same-step-error');
             setTimeout(() => this.handle.classList.remove('same-step-error'), 300);
         } else {
@@ -453,4 +498,8 @@ export default class CircularSlider {
         e.preventDefault();
         this.lastTouchType = e.type;
     };
+
+    [_isIEorEdge]() {
+        return document.documentMode || navigator.appName === 'Microsoft Internet Explorer' || (navigator.appName === "Netscape" && navigator.appVersion.indexOf('Edge') > -1);
+    }
 }
