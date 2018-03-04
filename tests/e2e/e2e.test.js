@@ -33,11 +33,11 @@ module.exports = {
     'test that sliders are initialized to correct values': function (browser) {
         // only checking for a rounded value is enough
         browser.pause(1000);
-        browser.expect.element('#handleslider180').to.have.attribute('transform').which.contains('rotate(179.9');
-        browser.expect.element('#handleslider150').to.have.attribute('transform').which.contains('rotate(288');
-        browser.expect.element('#handleslider120').to.have.attribute('transform').which.contains('rotate(275');
-        browser.expect.element('#handleslider90').to.have.attribute('transform').which.contains('rotate(216');
-        browser.expect.element('#handleslider60').to.have.attribute('transform').which.contains('rotate(89');
+        browser.expect.element('#handleslider180').to.have.attribute('style').which.contains('rotate(179.9');
+        browser.expect.element('#handleslider150').to.have.attribute('style').which.contains('rotate(288');
+        browser.expect.element('#handleslider120').to.have.attribute('style').which.contains('rotate(275');
+        browser.expect.element('#handleslider90').to.have.attribute('style').which.contains('rotate(216');
+        browser.expect.element('#handleslider60').to.have.attribute('style').which.contains('rotate(89');
     },
     
     'test that sliders callback sent correct values': function (browser) {
@@ -50,25 +50,25 @@ module.exports = {
     },
     
     'test that slider can be moved to next position and that value is changed as well': function(browser) {
-        browser.expect.element('#handleslider120').to.have.attribute('transform').which.contains('rotate(275');
+        browser.expect.element('#handleslider120').to.have.attribute('style').which.contains('rotate(275');
         browser.moveToElement('circle', 520, 300).mouseButtonClick(0);
         browser.pause(3000);
-        browser.expect.element('#handleslider120').to.have.attribute('transform').which.contains('rotate(85');
+        browser.expect.element('#handleslider120').to.have.attribute('style').which.contains('rotate(84');
         browser.expect.element('#insurance .amount').text.to.contain('$2500');
     },
     
     'test that slider is not moved if clicking the same step': function(browser) {
-        browser.expect.element('#handleslider180').to.have.attribute('transform').which.contains('rotate(179.9');
+        browser.expect.element('#handleslider180').to.have.attribute('style').which.contains('rotate(179.9');
         // move to top position
         browser.moveToElement('circle', 70, 100).mouseButtonClick(0);
         browser.pause(3000);
         // make sure position has been changed
-        browser.expect.element('#handleslider180').to.have.attribute('transform').which.contains('rotate(359');
+        browser.expect.element('#handleslider180').to.have.attribute('style').which.contains('rotate(359');
         // click again to move to the same step but different position
         browser.moveToElement('circle', 80, 80).mouseButtonClick(0);
         browser.pause(3000);
         // make sure position is still the same
-        browser.expect.element('#handleslider180').to.have.attribute('transform').which.contains('rotate(359');
+        browser.expect.element('#handleslider180').to.have.attribute('style').which.contains('rotate(359');
         browser.expect.element('#transportation .amount').text.to.contain('$1000');
         browser.end();
     }
