@@ -256,7 +256,7 @@ export default class CircularSlider {
         // create root svg only when the first slider is added to the container.
         this.rootSVG = document.getElementById("sliderRootSVG");
         if (this.rootSVG === null) {
-            this.rootSVG = this[_createRootSVG](Math.min(this.container.offsetWidth, this.container.offsetHeight));
+            this.rootSVG = this[_createRootSVG](this.container.offsetWidth);
             this.container.appendChild(this.rootSVG);
         }
 
