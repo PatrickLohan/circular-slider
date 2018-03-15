@@ -1,4 +1,4 @@
-import CircularSlider from "./CircularSlider";
+// import CircularSlider from "./CircularSlider";
 
 const container = "slider";
 const updateVal = (divId, val) => document.getElementById(divId).getElementsByClassName("amount")[0].innerHTML = "$" + val;
@@ -9,14 +9,14 @@ const insurance = new CircularSlider({container, color: "#22a823", min: 500, max
 const entertainment = new CircularSlider({container, color: "#fd8123", min: 5, max: 30, step: 5, radius: 100, valueChange: val => updateVal('entertainment', val)});
 const healthCare = new CircularSlider({ container, color: "#fd3b3f", min: 0, max: 4, step: 1, radius: 70, valueChange: val => updateVal('health-care', val)});
 
-updateVal('transportation', transportation.currentValue);
-updateVal('food', food.currentValue);
-updateVal('insurance', insurance.currentValue);
-updateVal('entertainment', entertainment.currentValue);
-updateVal('health-care', healthCare.currentValue);
+updateVal('transportation', transportation.getCurrentValue());
+updateVal('food', food.getCurrentValue());
+updateVal('insurance', insurance.getCurrentValue());
+updateVal('entertainment', entertainment.getCurrentValue());
+updateVal('health-care', healthCare.getCurrentValue());
 
-transportation.stepNo = 1;
-food.stepNo = 4;
-insurance.stepNo = 65;
-entertainment.stepNo = 3;
-healthCare.stepNo = 1;
+transportation.setStepNo(1);
+food.setStepNo(4);
+insurance.setStepNo(65);
+entertainment.setStepNo(3);
+healthCare.setStepNo(1);
