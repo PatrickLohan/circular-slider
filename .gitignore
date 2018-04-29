@@ -91,6 +91,5 @@ reports/
 tests_output/
 npm-debug.log.*
 node_modules/
-build/*
 
 # End of https://www.gitignore.io/api/windows,webstorm

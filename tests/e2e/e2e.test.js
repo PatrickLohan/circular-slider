@@ -1,6 +1,6 @@
 module.exports = {
     'test that exactly one root SVG is created': function (browser) {
-        browser.url('http://localhost:3000/').pause(1000);
+        browser.url('http://localhost:3000/examples/index.html').pause(1000);
         browser.expect.element('body').to.be.present.before(1000);
         browser.expect.element('#sliderRootSVG').to.be.a('svg');
         browser.expect.element('#slider > #sliderRootSVG:nth-of-type(2)').to.not.be.present;

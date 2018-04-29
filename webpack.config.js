@@ -1,11 +1,14 @@
 var path = require('path');
 
 module.exports = {
-    entry: ["babel-polyfill", "./public/js/app.js"],
-
+    entry: ["./lib/CircularSlider.js"],
+    mode: 'development',
     output: {
-        path: path.resolve(__dirname, 'build'),
-        filename: 'app.js'
+        path: path.resolve(__dirname, 'dist'),
+        filename: 'circular-slider.js',
+        library: 'circularSlider',
+        libraryTarget: 'umd',
+        umdNamedDefine: true
     },
     devServer: {
         contentBase: ".",
@@ -16,13 +19,10 @@ module.exports = {
         progress: true
     },
     module: {
-        loaders: [
+        rules: [
             {
                 test: /\.js$/,
-                loader: 'babel-loader',
-                query: {
-                    presets: ['env', 'stage-2'],
-                }
+                use: [{loader: 'babel-loader', query: {presets: ['env', 'stage-2'],}}]
             }
         ]
     },
