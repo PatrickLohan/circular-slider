@@ -87,10 +87,16 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
+.idea/
 reports/
 tests_output/
 npm-debug.log.*
 node_modules/
-.idea/
+webpack.config.*
+tests/
+examples/
+bin/
+nightwatch.json
+
 
 # End of https://www.gitignore.io/api/windows,webstorm
