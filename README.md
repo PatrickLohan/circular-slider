@@ -1,8 +1,7 @@
 # Circular Slider
 Javascript Circular Slider
 
-<img src="https://raw.githubusercontent.com/MougLee/circular-slider/master/examples/img/slider.png" alt="Single slider example" width="325" />
-<img src="https://raw.githubusercontent.com/MougLee/circular-slider/master/examples/img/sliders.png" alt="Multiple sliders example" width="400" />
+<img src="https://raw.githubusercontent.com/MougLee/circular-slider/master/examples/img/slider.png" alt="Single slider example" width="325" /><img src="https://raw.githubusercontent.com/MougLee/circular-slider/master/examples/img/sliders.png" alt="Multiple sliders example" width="400" />
 
 ## Live Demo
 
