@@ -1,16 +1,11 @@
 var path = require('path');
-const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 module.exports = {
     entry: ["./lib/CircularSlider.js"],
-    plugins: [
-        // new HtmlWebpackPlugin({
-        //     title: 'Production'
-        // })
-    ],
     output: {
         path: path.resolve(__dirname, 'dist'),
-        library: 'circularSlider',
+        library: 'CircularSlider',
+        libraryExport: 'default',
         libraryTarget: 'umd',
         umdNamedDefine: true
     },

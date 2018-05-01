@@ -1,5 +1,3 @@
-let CircularSlider = circularSlider.default;
-
 const container = "slider";
 const updateVal = (divId, val) => document.getElementById(divId).getElementsByClassName("amount")[0].innerHTML = "$" + val;
 
